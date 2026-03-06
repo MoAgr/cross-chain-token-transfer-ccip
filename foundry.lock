@@ -1,0 +1,20 @@
+{
+  "lib/ccip": {
+    "tag": {
+      "name": "v2.17.0-ccip1.5.16",
+      "rev": "ae80e255dbe38e0f2536d5a36b0990a7b4d9a0d2"
+    }
+  },
+  "lib/forge-std": {
+    "tag": {
+      "name": "v1.15.0",
+      "rev": "0844d7e1fc5e60d77b68e469bff60265f236c398"
+    }
+  },
+  "lib/openzeppelin-contracts": {
+    "tag": {
+      "name": "v5.2.0",
+      "rev": "acd4ff74de833399287ed6b31b4debf6b2b35527"
+    }
+  }
+}
