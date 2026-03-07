@@ -20,7 +20,12 @@ import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 ///   - Replay protection via processed messageId tracking
 ///   - Reentrancy guard on all state-changing functions
 ///   - Defensive try/catch in `ccipReceive` — failures are stored for manual retry
-contract CCIPTokenReceiver is IAny2EVMMessageReceiver, IERC165, Ownable, ReentrancyGuard {
+contract CCIPTokenReceiver is
+    IAny2EVMMessageReceiver,
+    IERC165,
+    Ownable,
+    ReentrancyGuard
+{
     using SafeERC20 for IERC20;
 
     // ──────────────────────────────────────────────
@@ -54,9 +59,9 @@ contract CCIPTokenReceiver is IAny2EVMMessageReceiver, IERC165, Ownable, Reentra
 
     /// @notice Processing status of a received CCIP message.
     enum MessageStatus {
-        NotReceived,  // 0 — never seen
-        Succeeded,    // 1 — processed successfully
-        Failed        // 2 — processing reverted; stored for retry
+        NotReceived, // 0 — never seen
+        Succeeded, // 1 — processed successfully
+        Failed // 2 — processing reverted; stored for retry
     }
 
     // ──────────────────────────────────────────────
@@ -87,19 +92,30 @@ contract CCIPTokenReceiver is IAny2EVMMessageReceiver, IERC165, Ownable, Reentra
     /// @notice Emitted when a source chain selector is added to or removed from the allowlist.
     /// @param chainSelector The CCIP chain selector that was updated.
     /// @param allowed Whether the chain is now allowed.
-    event SourceChainAllowlistUpdated(uint64 indexed chainSelector, bool allowed);
+    event SourceChainAllowlistUpdated(
+        uint64 indexed chainSelector,
+        bool allowed
+    );
 
     /// @notice Emitted when a sender address allowlist entry is updated.
     /// @param sourceChainSelector The source chain selector.
     /// @param sender The sender address.
     /// @param allowed Whether the sender is now allowed.
-    event SenderAllowlistUpdated(uint64 indexed sourceChainSelector, address indexed sender, bool allowed);
+    event SenderAllowlistUpdated(
+        uint64 indexed sourceChainSelector,
+        address indexed sender,
+        bool allowed
+    );
 
     /// @notice Emitted when ERC-20 tokens are withdrawn from the contract.
     /// @param token The token address.
     /// @param to The recipient address.
     /// @param amount The amount withdrawn.
-    event TokensWithdrawn(address indexed token, address indexed to, uint256 amount);
+    event TokensWithdrawn(
+        address indexed token,
+        address indexed to,
+        uint256 amount
+    );
 
     // ──────────────────────────────────────────────
     //  State
@@ -109,16 +125,19 @@ contract CCIPTokenReceiver is IAny2EVMMessageReceiver, IERC165, Ownable, Reentra
     address public immutable i_router;
 
     /// @notice Mapping of allowed source chain selectors.
-    mapping(uint64 chainSelector => bool allowed) public allowlistedSourceChains;
+    mapping(uint64 chainSelector => bool allowed)
+        public allowlistedSourceChains;
 
     /// @notice Mapping of allowed sender addresses per source chain selector.
-    mapping(uint64 chainSelector => mapping(address sender => bool allowed)) public allowlistedSenders;
+    mapping(uint64 chainSelector => mapping(address sender => bool allowed))
+        public allowlistedSenders;
 
     /// @notice Processing status of each received message.
     mapping(bytes32 messageId => MessageStatus status) public messageStatuses;
 
     /// @notice Raw CCIP message data stored for failed messages to enable retry.
-    mapping(bytes32 messageId => Client.Any2EVMMessage message) private s_failedMessages;
+    mapping(bytes32 messageId => Client.Any2EVMMessage message)
+        private s_failedMessages;
 
     // ──────────────────────────────────────────────
     //  Modifiers
@@ -163,8 +182,12 @@ contract CCIPTokenReceiver is IAny2EVMMessageReceiver, IERC165, Ownable, Reentra
     // ──────────────────────────────────────────────
 
     /// @inheritdoc IERC165
-    function supportsInterface(bytes4 interfaceId) external pure override returns (bool) {
-        return interfaceId == type(IAny2EVMMessageReceiver).interfaceId || interfaceId == type(IERC165).interfaceId;
+    function supportsInterface(
+        bytes4 interfaceId
+    ) external pure override returns (bool) {
+        return
+            interfaceId == type(IAny2EVMMessageReceiver).interfaceId ||
+            interfaceId == type(IERC165).interfaceId;
     }
 
     // ──────────────────────────────────────────────
@@ -174,7 +197,10 @@ contract CCIPTokenReceiver is IAny2EVMMessageReceiver, IERC165, Ownable, Reentra
     /// @notice Adds or removes a source chain selector from the allowlist.
     /// @param chainSelector The CCIP chain selector.
     /// @param allowed `true` to allow, `false` to disallow.
-    function setSourceChainAllowlist(uint64 chainSelector, bool allowed) external onlyOwner {
+    function setSourceChainAllowlist(
+        uint64 chainSelector,
+        bool allowed
+    ) external onlyOwner {
         allowlistedSourceChains[chainSelector] = allowed;
         emit SourceChainAllowlistUpdated(chainSelector, allowed);
     }
@@ -183,7 +209,11 @@ contract CCIPTokenReceiver is IAny2EVMMessageReceiver, IERC165, Ownable, Reentra
     /// @param sourceChainSelector The source chain selector.
     /// @param sender The sender contract address on the source chain.
     /// @param allowed `true` to allow, `false` to disallow.
-    function setSenderAllowlist(uint64 sourceChainSelector, address sender, bool allowed) external onlyOwner {
+    function setSenderAllowlist(
+        uint64 sourceChainSelector,
+        address sender,
+        bool allowed
+    ) external onlyOwner {
         allowlistedSenders[sourceChainSelector][sender] = allowed;
         emit SenderAllowlistUpdated(sourceChainSelector, sender, allowed);
     }
@@ -197,24 +227,34 @@ contract CCIPTokenReceiver is IAny2EVMMessageReceiver, IERC165, Ownable, Reentra
     /// @dev Uses a defensive try/catch pattern:
     ///   - On success: marks the message as `Succeeded` and emits `MessageReceived`.
     ///   - On failure: marks the message as `Failed`, stores the raw message, and emits `MessageFailed`.
-    ///   The top-level call **never reverts**, ensuring tokens are not returned to the source chain.
-    function ccipReceive(Client.Any2EVMMessage calldata message)
-        external
-        override
-        onlyRouter
-        nonReentrant
-    {
+    ///   The top-level call **never reverts**, ensuring tokens are not stuck in the protocol.
+    function ccipReceive(
+        Client.Any2EVMMessage calldata message
+    ) external override onlyRouter nonReentrant {
         // Decode the sender address from the source chain.
         address sender = abi.decode(message.sender, (address));
 
         // Validate source chain and sender allowlists.
         if (!allowlistedSourceChains[message.sourceChainSelector]) {
             // Store as failed so owner can recover tokens.
-            _storeFailed(message, abi.encodeWithSelector(SourceChainNotAllowed.selector, message.sourceChainSelector));
+            _storeFailed(
+                message,
+                abi.encodeWithSelector(
+                    SourceChainNotAllowed.selector,
+                    message.sourceChainSelector
+                )
+            );
             return;
         }
         if (!allowlistedSenders[message.sourceChainSelector][sender]) {
-            _storeFailed(message, abi.encodeWithSelector(SenderNotAllowed.selector, message.sourceChainSelector, sender));
+            _storeFailed(
+                message,
+                abi.encodeWithSelector(
+                    SenderNotAllowed.selector,
+                    message.sourceChainSelector,
+                    sender
+                )
+            );
             return;
         }
 
@@ -266,11 +306,16 @@ contract CCIPTokenReceiver is IAny2EVMMessageReceiver, IERC165, Ownable, Reentra
     /// @dev Stores a failed message for later retry and emits `MessageFailed`.
     /// @param message The raw CCIP message.
     /// @param reason The revert reason bytes.
-    function _storeFailed(Client.Any2EVMMessage calldata message, bytes memory reason) private {
+    function _storeFailed(
+        Client.Any2EVMMessage calldata message,
+        bytes memory reason
+    ) private {
         messageStatuses[message.messageId] = MessageStatus.Failed;
 
         // Deep-copy the message into storage for retry.
-        Client.Any2EVMMessage storage stored = s_failedMessages[message.messageId];
+        Client.Any2EVMMessage storage stored = s_failedMessages[
+            message.messageId
+        ];
         stored.messageId = message.messageId;
         stored.sourceChainSelector = message.sourceChainSelector;
         stored.sender = message.sender;
@@ -291,7 +336,9 @@ contract CCIPTokenReceiver is IAny2EVMMessageReceiver, IERC165, Ownable, Reentra
     /// @dev Only callable by the owner. The message must be in `Failed` status.
     ///      On success the status is updated to `Succeeded`. On failure it reverts.
     /// @param messageId The CCIP message identifier of the failed message.
-    function retryFailedMessage(bytes32 messageId) external onlyOwner nonReentrant {
+    function retryFailedMessage(
+        bytes32 messageId
+    ) external onlyOwner nonReentrant {
         if (messageStatuses[messageId] != MessageStatus.Failed) {
             revert MessageNotFailed(messageId);
         }
@@ -331,7 +378,10 @@ contract CCIPTokenReceiver is IAny2EVMMessageReceiver, IERC165, Ownable, Reentra
     /// @notice Withdraws ERC-20 tokens stuck in this contract.
     /// @param token The ERC-20 token address.
     /// @param to The recipient address.
-    function withdrawToken(address token, address to) external onlyOwner nonReentrant {
+    function withdrawToken(
+        address token,
+        address to
+    ) external onlyOwner nonReentrant {
         if (to == address(0)) revert InvalidAddress();
         uint256 balance = IERC20(token).balanceOf(address(this));
         IERC20(token).safeTransfer(to, balance);
@@ -345,7 +395,9 @@ contract CCIPTokenReceiver is IAny2EVMMessageReceiver, IERC165, Ownable, Reentra
     /// @notice Returns the stored data for a failed message.
     /// @param messageId The CCIP message identifier.
     /// @return The stored `Any2EVMMessage` struct.
-    function getFailedMessage(bytes32 messageId) external view returns (Client.Any2EVMMessage memory) {
+    function getFailedMessage(
+        bytes32 messageId
+    ) external view returns (Client.Any2EVMMessage memory) {
         return s_failedMessages[messageId];
     }
 
