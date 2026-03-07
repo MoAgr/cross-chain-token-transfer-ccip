@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
-import {IAny2EVMMessageReceiver} from "@chainlink/contracts-ccip/src/v0.8/ccip/interfaces/IAny2EVMMessageReceiver.sol";
+import {CCIPReceiver} from "@chainlink/contracts-ccip/src/v0.8/ccip/applications/CCIPReceiver.sol";
 import {Client} from "@chainlink/contracts-ccip/src/v0.8/ccip/libraries/Client.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
 /// @title CCIPTokenReceiver
 /// @author CrossChainTokenTransfer
@@ -20,20 +19,12 @@ import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 ///   - Replay protection via processed messageId tracking
 ///   - Reentrancy guard on all state-changing functions
 ///   - Defensive try/catch in `ccipReceive` — failures are stored for manual retry
-contract CCIPTokenReceiver is
-    IAny2EVMMessageReceiver,
-    IERC165,
-    Ownable,
-    ReentrancyGuard
-{
+contract CCIPTokenReceiver is CCIPReceiver, Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     // ──────────────────────────────────────────────
     //  Errors
     // ──────────────────────────────────────────────
-
-    /// @notice Thrown when `msg.sender` is not the authorised CCIP Router.
-    error InvalidRouter(address caller);
 
     /// @notice Thrown when a message arrives from an unlisted source chain.
     error SourceChainNotAllowed(uint64 sourceChainSelector);
@@ -121,9 +112,6 @@ contract CCIPTokenReceiver is
     //  State
     // ──────────────────────────────────────────────
 
-    /// @notice The Chainlink CCIP Router contract on this chain.
-    address public immutable i_router;
-
     /// @notice Mapping of allowed source chain selectors.
     mapping(uint64 chainSelector => bool allowed)
         public allowlistedSourceChains;
@@ -142,12 +130,6 @@ contract CCIPTokenReceiver is
     // ──────────────────────────────────────────────
     //  Modifiers
     // ──────────────────────────────────────────────
-
-    /// @dev Reverts if the caller is not the authorised CCIP Router.
-    modifier onlyRouter() {
-        if (msg.sender != i_router) revert InvalidRouter(msg.sender);
-        _;
-    }
 
     /// @dev Reverts if the source chain is not allowlisted.
     modifier onlyAllowlistedSourceChain(uint64 sourceChainSelector) {
@@ -172,22 +154,22 @@ contract CCIPTokenReceiver is
     /// @notice Deploys the receiver contract.
     /// @param router The address of the CCIP Router on the destination chain.
     /// @param initialOwner The address that will own this contract.
-    constructor(address router, address initialOwner) Ownable(initialOwner) {
-        if (router == address(0)) revert InvalidAddress();
-        i_router = router;
-    }
+    constructor(
+        address router,
+        address initialOwner
+    ) CCIPReceiver(router) Ownable(initialOwner) {}
 
     // ──────────────────────────────────────────────
     //  ERC-165
     // ──────────────────────────────────────────────
 
-    /// @inheritdoc IERC165
+    /// @inheritdoc CCIPReceiver
+    /// @dev Delegates to CCIPReceiver's supportsInterface which handles
+    ///      IAny2EVMMessageReceiver and IERC165 interface detection.
     function supportsInterface(
         bytes4 interfaceId
-    ) external pure override returns (bool) {
-        return
-            interfaceId == type(IAny2EVMMessageReceiver).interfaceId ||
-            interfaceId == type(IERC165).interfaceId;
+    ) public view override returns (bool) {
+        return super.supportsInterface(interfaceId);
     }
 
     // ──────────────────────────────────────────────
@@ -222,15 +204,24 @@ contract CCIPTokenReceiver is
     //  CCIP — Message Reception (Defensive Pattern)
     // ──────────────────────────────────────────────
 
-    /// @inheritdoc IAny2EVMMessageReceiver
+    /// @inheritdoc CCIPReceiver
     /// @notice Entry point called by the CCIP Router when a cross-chain message arrives.
+    /// @dev Overrides the base CCIPReceiver to add reentrancy protection.
+    ///      The `onlyRouter` modifier is inherited from CCIPReceiver.
+    function ccipReceive(
+        Client.Any2EVMMessage calldata message
+    ) external override onlyRouter nonReentrant {
+        _ccipReceive(message);
+    }
+
+    /// @notice Defensive receive logic with try/catch pattern.
     /// @dev Uses a defensive try/catch pattern:
     ///   - On success: marks the message as `Succeeded` and emits `MessageReceived`.
     ///   - On failure: marks the message as `Failed`, stores the raw message, and emits `MessageFailed`.
     ///   The top-level call **never reverts**, ensuring tokens are not stuck in the protocol.
-    function ccipReceive(
-        Client.Any2EVMMessage calldata message
-    ) external override onlyRouter nonReentrant {
+    function _ccipReceive(
+        Client.Any2EVMMessage memory message
+    ) internal override {
         // Decode the sender address from the source chain.
         address sender = abi.decode(message.sender, (address));
 
@@ -272,11 +263,11 @@ contract CCIPTokenReceiver is
     }
 
     /// @notice Internal processing logic, called via `this.processMessage()` so that
-    ///         reverts are caught by the try/catch in `ccipReceive`.
+    ///         reverts are caught by the try/catch in `_ccipReceive`.
     /// @dev This function MUST only be called by the contract itself.
     /// @param message The decoded CCIP message.
     function processMessage(Client.Any2EVMMessage calldata message) external {
-        // Only callable by self (from the try/catch in ccipReceive).
+        // Only callable by self (from the try/catch in _ccipReceive).
         if (msg.sender != address(this)) revert InvalidRouter(msg.sender);
 
         _processMessage(message);
@@ -307,7 +298,7 @@ contract CCIPTokenReceiver is
     /// @param message The raw CCIP message.
     /// @param reason The revert reason bytes.
     function _storeFailed(
-        Client.Any2EVMMessage calldata message,
+        Client.Any2EVMMessage memory message,
         bytes memory reason
     ) private {
         messageStatuses[message.messageId] = MessageStatus.Failed;
@@ -403,7 +394,7 @@ contract CCIPTokenReceiver is
 
     /// @notice Returns the CCIP Router address.
     /// @return The router address.
-    function getRouter() external view returns (address) {
-        return i_router;
+    function getRouter() public view override returns (address) {
+        return super.getRouter();
     }
 }
