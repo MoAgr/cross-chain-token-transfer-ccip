@@ -1,12 +1,20 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
-import {CCIPReceiver} from "@chainlink/contracts-ccip/src/v0.8/ccip/applications/CCIPReceiver.sol";
-import {Client} from "@chainlink/contracts-ccip/src/v0.8/ccip/libraries/Client.sol";
+import {
+    CCIPReceiver
+} from "@chainlink/contracts-ccip/src/v0.8/ccip/applications/CCIPReceiver.sol";
+import {
+    Client
+} from "@chainlink/contracts-ccip/src/v0.8/ccip/libraries/Client.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {
+    SafeERC20
+} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {
+    ReentrancyGuard
+} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /// @title CCIPTokenReceiver
 /// @author CrossChainTokenTransfer
@@ -123,7 +131,7 @@ contract CCIPTokenReceiver is CCIPReceiver, Ownable, ReentrancyGuard {
     /// @notice Processing status of each received message.
     mapping(bytes32 messageId => MessageStatus status) public messageStatuses;
 
-    /// @notice Raw CCIP message data stored for failed messages to enable retry.
+    /// @notice Raw CCIP message data stored for failed messages to enable retry. @mohit-> gas?
     mapping(bytes32 messageId => Client.Any2EVMMessage message)
         private s_failedMessages;
 
@@ -301,22 +309,25 @@ contract CCIPTokenReceiver is CCIPReceiver, Ownable, ReentrancyGuard {
         Client.Any2EVMMessage memory message,
         bytes memory reason
     ) private {
-        messageStatuses[message.messageId] = MessageStatus.Failed;
+        bytes32 msgId = message.messageId;
 
-        // Deep-copy the message into storage for retry.
-        Client.Any2EVMMessage storage stored = s_failedMessages[
-            message.messageId
-        ];
-        stored.messageId = message.messageId;
+        messageStatuses[msgId] = MessageStatus.Failed;
+
+        Client.Any2EVMMessage storage stored = s_failedMessages[msgId];
+        stored.messageId = msgId;
         stored.sourceChainSelector = message.sourceChainSelector;
         stored.sender = message.sender;
         stored.data = message.data;
-        // Copy token amounts array.
-        for (uint256 i = 0; i < message.destTokenAmounts.length; i++) {
+
+        uint256 len = message.destTokenAmounts.length;
+        for (uint256 i; i < len; ) {
             stored.destTokenAmounts.push(message.destTokenAmounts[i]);
+            unchecked {
+                ++i;
+            }
         }
 
-        emit MessageFailed(message.messageId, reason);
+        emit MessageFailed(msgId, reason);
     }
 
     // ──────────────────────────────────────────────
@@ -351,11 +362,16 @@ contract CCIPTokenReceiver is CCIPReceiver, Ownable, ReentrancyGuard {
         // ── Interactions ────────────────────────────
         // Forward tokens that are sitting in this contract to the owner.
         // This is the safest default — the owner can then distribute as needed.
-        for (uint256 i = 0; i < message.destTokenAmounts.length; i++) {
+        uint256 len = message.destTokenAmounts.length;
+
+        for (uint256 i = 0; i < len; ) {
             IERC20(message.destTokenAmounts[i].token).safeTransfer(
                 owner(),
                 message.destTokenAmounts[i].amount
             );
+            unchecked {
+                ++i;
+            }
         }
 
         // Clean up storage (gas refund).

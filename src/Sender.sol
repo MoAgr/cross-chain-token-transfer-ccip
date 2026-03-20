@@ -208,7 +208,7 @@ contract CCIPTokenSender is Ownable, ReentrancyGuard {
         // ── Interactions ────────────────────────────
         // Pull tokens from caller into this contract, then approve the router.
         IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
-        IERC20(token).safeIncreaseAllowance(address(i_router), amount);
+        IERC20(token).safeIncreaseAllowance(address(i_router), amount); //@mohit where is allowance reset?
 
         // Dispatch the CCIP message (send exact fee, not the buffered amount).
         messageId = i_router.ccipSend{value: fee}(
