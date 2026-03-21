@@ -12,3 +12,6 @@ docs/
 
 # Dotenv file
 .env
+
+# Static analysis reports
+slither-report*.json

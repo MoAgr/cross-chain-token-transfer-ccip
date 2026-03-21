@@ -275,6 +275,9 @@ contract CCIPTokenReceiver is CCIPReceiver, Ownable, ReentrancyGuard {
             revert MessageAlreadyProcessed(message.messageId);
         }
 
+        // Set a pre-call sentinel to close any replay window before external execution.
+        messageStatuses[message.messageId] = MessageStatus.Failed;
+
         // Attempt to process the message inside a try/catch.
         try this.processMessage(message) {
             // Success path — status already set inside processMessage.
