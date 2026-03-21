@@ -1,12 +1,20 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
-import {IRouterClient} from "@chainlink/contracts-ccip/src/v0.8/ccip/interfaces/IRouterClient.sol";
-import {Client} from "@chainlink/contracts-ccip/src/v0.8/ccip/libraries/Client.sol";
+import {
+    IRouterClient
+} from "@chainlink/contracts-ccip/src/v0.8/ccip/interfaces/IRouterClient.sol";
+import {
+    Client
+} from "@chainlink/contracts-ccip/src/v0.8/ccip/libraries/Client.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {
+    SafeERC20
+} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {
+    ReentrancyGuard
+} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /// @title CCIPTokenSender
 /// @author CrossChainTokenTransfer
@@ -36,6 +44,9 @@ contract CCIPTokenSender is Ownable, ReentrancyGuard {
 
     /// @notice Thrown when a native transfer fails.
     error NativeTransferFailed();
+
+    /// @notice Thrown when fee buffer basis points exceed the configured maximum.
+    error InvalidFeeBufferBps(uint16 provided, uint16 maximum);
 
     // ──────────────────────────────────────────────
     //  Events
@@ -97,6 +108,9 @@ contract CCIPTokenSender is Ownable, ReentrancyGuard {
     /// @notice The Chainlink CCIP Router contract on this chain.
     IRouterClient public immutable i_router;
 
+    /// @notice Maximum allowed fee buffer, in basis points.
+    uint16 public constant MAX_FEE_BUFFER_BPS = 3000;
+
     /// @notice Mapping of allowed destination chain selectors.
     /// @dev Only chains set to `true` can be targeted by `sendTokens`.
     mapping(uint64 chainSelector => bool allowed)
@@ -137,6 +151,9 @@ contract CCIPTokenSender is Ownable, ReentrancyGuard {
     /// @notice Updates the fee buffer percentage.
     /// @param newBufferBps The new buffer in basis points (e.g. 500 = 5%, 1000 = 10%).
     function setFeeBufferBps(uint16 newBufferBps) external onlyOwner {
+        if (newBufferBps > MAX_FEE_BUFFER_BPS) {
+            revert InvalidFeeBufferBps(newBufferBps, MAX_FEE_BUFFER_BPS);
+        }
         uint16 oldBufferBps = feeBufferBps;
         feeBufferBps = newBufferBps;
         emit FeeBufferUpdated(oldBufferBps, newBufferBps);
@@ -207,14 +224,20 @@ contract CCIPTokenSender is Ownable, ReentrancyGuard {
 
         // ── Interactions ────────────────────────────
         // Pull tokens from caller into this contract, then approve the router.
-        IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
-        IERC20(token).safeIncreaseAllowance(address(i_router), amount); //@mohit where is allowance reset?
+        IERC20 erc20 = IERC20(token);
+        erc20.safeTransferFrom(msg.sender, address(this), amount);
+
+        // Use exact, one-shot approval to avoid persistent excess allowance.
+        erc20.forceApprove(address(i_router), amount);
 
         // Dispatch the CCIP message (send exact fee, not the buffered amount).
         messageId = i_router.ccipSend{value: fee}(
             destinationChainSelector,
             message
         );
+
+        // Clear approval after use to minimize allowance blast radius.
+        erc20.forceApprove(address(i_router), 0);
 
         emit TokensSent(
             messageId,

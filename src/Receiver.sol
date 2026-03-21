@@ -43,8 +43,14 @@ contract CCIPTokenReceiver is CCIPReceiver, Ownable, ReentrancyGuard {
     /// @notice Thrown when a message with the same `messageId` has already been processed.
     error MessageAlreadyProcessed(bytes32 messageId);
 
+    /// @notice Thrown when a message carries more token entries than supported.
+    error TooManyTokens(uint256 provided, uint256 maximum);
+
     /// @notice Thrown when attempting to retry a message that has not failed.
     error MessageNotFailed(bytes32 messageId);
+
+    /// @notice Thrown when attempting to retry a failed message that was marked non-retryable.
+    error MessageNotRetryable(bytes32 messageId);
 
     /// @notice Thrown when a zero address is provided where a non-zero address is expected.
     error InvalidAddress();
@@ -128,12 +134,19 @@ contract CCIPTokenReceiver is CCIPReceiver, Ownable, ReentrancyGuard {
     mapping(uint64 chainSelector => mapping(address sender => bool allowed))
         public allowlistedSenders;
 
+    /// @notice Maximum number of token entries accepted per CCIP message.
+    uint16 public constant MAX_TOKENS_PER_MESSAGE = 10;
+
     /// @notice Processing status of each received message.
     mapping(bytes32 messageId => MessageStatus status) public messageStatuses;
 
     /// @notice Raw CCIP message data stored for failed messages to enable retry. @mohit-> gas?
     mapping(bytes32 messageId => Client.Any2EVMMessage message)
         private s_failedMessages;
+
+    /// @notice Whether failed message data is complete and safe to retry.
+    mapping(bytes32 messageId => bool retryable)
+        private s_retryableFailedMessages;
 
     // ──────────────────────────────────────────────
     //  Modifiers
@@ -278,6 +291,11 @@ contract CCIPTokenReceiver is CCIPReceiver, Ownable, ReentrancyGuard {
         // Only callable by self (from the try/catch in _ccipReceive).
         if (msg.sender != address(this)) revert InvalidRouter(msg.sender);
 
+        uint256 tokenCount = message.destTokenAmounts.length;
+        if (tokenCount > MAX_TOKENS_PER_MESSAGE) {
+            revert TooManyTokens(tokenCount, MAX_TOKENS_PER_MESSAGE);
+        }
+
         _processMessage(message);
     }
 
@@ -311,7 +329,21 @@ contract CCIPTokenReceiver is CCIPReceiver, Ownable, ReentrancyGuard {
     ) private {
         bytes32 msgId = message.messageId;
 
+        uint256 len = message.destTokenAmounts.length;
+        if (len > MAX_TOKENS_PER_MESSAGE) {
+            _storeFailedWithoutTokenAmounts(
+                message,
+                abi.encodeWithSelector(
+                    TooManyTokens.selector,
+                    len,
+                    MAX_TOKENS_PER_MESSAGE
+                )
+            );
+            return;
+        }
+
         messageStatuses[msgId] = MessageStatus.Failed;
+        s_retryableFailedMessages[msgId] = true;
 
         Client.Any2EVMMessage storage stored = s_failedMessages[msgId];
         stored.messageId = msgId;
@@ -319,13 +351,30 @@ contract CCIPTokenReceiver is CCIPReceiver, Ownable, ReentrancyGuard {
         stored.sender = message.sender;
         stored.data = message.data;
 
-        uint256 len = message.destTokenAmounts.length;
         for (uint256 i; i < len; ) {
             stored.destTokenAmounts.push(message.destTokenAmounts[i]);
             unchecked {
                 ++i;
             }
         }
+
+        emit MessageFailed(msgId, reason);
+    }
+
+    /// @dev Stores a failed message without token amounts when payload is too large for safe retries.
+    function _storeFailedWithoutTokenAmounts(
+        Client.Any2EVMMessage memory message,
+        bytes memory reason
+    ) private {
+        bytes32 msgId = message.messageId;
+        messageStatuses[msgId] = MessageStatus.Failed;
+        s_retryableFailedMessages[msgId] = false;
+
+        Client.Any2EVMMessage storage stored = s_failedMessages[msgId];
+        stored.messageId = msgId;
+        stored.sourceChainSelector = message.sourceChainSelector;
+        stored.sender = message.sender;
+        stored.data = message.data;
 
         emit MessageFailed(msgId, reason);
     }
@@ -343,6 +392,9 @@ contract CCIPTokenReceiver is CCIPReceiver, Ownable, ReentrancyGuard {
     ) external onlyOwner nonReentrant {
         if (messageStatuses[messageId] != MessageStatus.Failed) {
             revert MessageNotFailed(messageId);
+        }
+        if (!s_retryableFailedMessages[messageId]) {
+            revert MessageNotRetryable(messageId);
         }
 
         // ── Effects ─────────────────────────────────
@@ -363,6 +415,9 @@ contract CCIPTokenReceiver is CCIPReceiver, Ownable, ReentrancyGuard {
         // Forward tokens that are sitting in this contract to the owner.
         // This is the safest default — the owner can then distribute as needed.
         uint256 len = message.destTokenAmounts.length;
+        if (len > MAX_TOKENS_PER_MESSAGE) {
+            revert TooManyTokens(len, MAX_TOKENS_PER_MESSAGE);
+        }
 
         for (uint256 i = 0; i < len; ) {
             IERC20(message.destTokenAmounts[i].token).safeTransfer(
@@ -376,6 +431,7 @@ contract CCIPTokenReceiver is CCIPReceiver, Ownable, ReentrancyGuard {
 
         // Clean up storage (gas refund).
         delete s_failedMessages[messageId];
+        delete s_retryableFailedMessages[messageId];
     }
 
     // ──────────────────────────────────────────────
