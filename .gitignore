@@ -2,6 +2,9 @@
 cache/
 out/
 
+# Dependencies (managed locally)
+lib/
+
 # Ignores development broadcast logs
 !/broadcast
 /broadcast/*/31337/
@@ -12,6 +15,10 @@ docs/
 
 # Dotenv file
 .env
+
+# macOS Finder metadata
+.DS_Store
+**/.DS_Store
 
 # Static analysis reports
 slither-report*.json
