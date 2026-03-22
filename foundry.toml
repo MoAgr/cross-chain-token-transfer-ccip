@@ -6,6 +6,10 @@ solc = "0.8.24"
 evm_version = "paris"
 
 remappings = [
+    "@chainlink/local/=lib/chainlink-local/",
+    "@chainlink/contracts-ccip/contracts/=lib/chainlink-local/lib/chainlink-ccip/chains/evm/contracts/",
+    "@chainlink/contracts/src/=lib/chainlink-local/lib/chainlink-evm/contracts/src/",
+    "@chainlink/contracts-ccip/src/=lib/ccip/contracts/src/",
     "@chainlink/contracts-ccip/=lib/ccip/contracts/",
     "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
     "forge-std/=lib/forge-std/src/",
