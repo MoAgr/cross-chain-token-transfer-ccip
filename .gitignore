@@ -22,3 +22,4 @@ docs/
 
 # Static analysis reports
 slither-report*.json
+slither-receiver*.json

@@ -305,7 +305,9 @@ contract CCIPTokenReceiver is CCIPReceiver, Ownable, ReentrancyGuard {
     /// @notice Core business logic for handling a received message.
     /// @dev Override this in derived contracts to add custom logic.
     /// @param message The decoded CCIP message.
-    function _processMessage(Client.Any2EVMMessage calldata message) internal {
+    function _processMessage(
+        Client.Any2EVMMessage calldata message
+    ) internal virtual {
         // ── Effects ─────────────────────────────────
         messageStatuses[message.messageId] = MessageStatus.Succeeded;
 
