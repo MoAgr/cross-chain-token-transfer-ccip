@@ -4,6 +4,7 @@ pragma solidity 0.8.24;
 import {Test} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {CCIPTokenSender} from "../src/Sender.sol";
+import {CCIPTokenReceiver} from "../src/Receiver.sol";
 import {
     CCIPLocalSimulator
 } from "@chainlink/local/src/ccip/CCIPLocalSimulator.sol";
@@ -24,6 +25,8 @@ contract CCIPTokenSenderTest is Test {
     address constant RECEIVER = address(0xBEEF);
     uint256 constant TOKEN_AMOUNT = 100e18;
     uint256 constant BASE_FEE = 0.01 ether;
+    uint256 constant CCIP_RECEIVER_GAS_CAP = 3_000_000;
+    uint64 constant SOURCE_CHAIN_SELECTOR = 16015286601757825753;
 
     // ── actors ─────────────────────────────────────────────────
     address owner = makeAddr("owner");
@@ -34,6 +37,7 @@ contract CCIPTokenSenderTest is Test {
     CCIPLocalSimulator simulator;
     uint64 destChain;
     CCIPTokenSender sender;
+    CCIPTokenReceiver receiverForGas;
     MockCCIPRouter router;
     MockERC20 token;
 
@@ -50,16 +54,70 @@ contract CCIPTokenSenderTest is Test {
         router = MockCCIPRouter(payable(address(sourceRouter)));
         token = new MockERC20("Mock USDC", "mUSDC");
         sender = new CCIPTokenSender(address(router), owner);
+        receiverForGas = new CCIPTokenReceiver(address(router), owner);
 
         router.setFee(BASE_FEE);
 
         vm.prank(owner);
         sender.setDestinationChainAllowlist(destChain, true);
 
+        vm.startPrank(owner);
+        receiverForGas.setSourceChainAllowlist(SOURCE_CHAIN_SELECTOR, true);
+        receiverForGas.setSenderAllowlist(
+            SOURCE_CHAIN_SELECTOR,
+            address(sender),
+            true
+        );
+        vm.stopPrank();
+
         token.mint(alice, 1_000e18);
         token.mint(bob, 1_000e18);
         vm.deal(alice, 10 ether);
         vm.deal(bob, 10 ether);
+    }
+
+    function _extractMsgExecuted(
+        Vm.Log[] memory logs
+    ) internal pure returns (bool success, uint256 gasUsed, bool found) {
+        bytes32 msgExecutedTopic = keccak256("MsgExecuted(bool,bytes,uint256)");
+
+        for (uint256 i; i < logs.length; ) {
+            if (
+                logs[i].topics.length > 0 &&
+                logs[i].topics[0] == msgExecutedTopic
+            ) {
+                (bool execSuccess, , uint256 execGasUsed) = abi.decode(
+                    logs[i].data,
+                    (bool, bytes, uint256)
+                );
+                return (execSuccess, execGasUsed, true);
+            }
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
+    function _sendAndCaptureRouteGas(
+        uint256 gasLimit
+    ) internal returns (bool execSuccess, uint256 gasUsed) {
+        vm.startPrank(alice);
+        token.approve(address(sender), TOKEN_AMOUNT);
+
+        vm.recordLogs();
+        sender.sendTokens{value: 0.02 ether}(
+            destChain,
+            address(receiverForGas),
+            address(token),
+            TOKEN_AMOUNT,
+            gasLimit
+        );
+        vm.stopPrank();
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bool found;
+        (execSuccess, gasUsed, found) = _extractMsgExecuted(logs);
+        assertTrue(found);
     }
 
     // ─────────────────────────────────────────────────────────
@@ -327,6 +385,31 @@ contract CCIPTokenSenderTest is Test {
             0
         );
         vm.stopPrank();
+    }
+
+    function test_gasAudit_sendTokens_mutableGasLimitBuckets() public {
+        uint256[3] memory requestedGasLimits = [uint256(0), 300_000, 500_000];
+        uint256 baselineGasUsed;
+
+        for (uint256 i; i < requestedGasLimits.length; ) {
+            (bool execSuccess, uint256 gasUsed) = _sendAndCaptureRouteGas(
+                requestedGasLimits[i]
+            );
+
+            assertTrue(execSuccess);
+            assertLt(gasUsed, CCIP_RECEIVER_GAS_CAP);
+
+            if (i == 0) {
+                baselineGasUsed = gasUsed;
+            } else {
+                // Receiver logic is identical across these runs; large drift would indicate measurement or path changes.
+                assertApproxEqAbs(gasUsed, baselineGasUsed, 60_000);
+            }
+
+            unchecked {
+                ++i;
+            }
+        }
     }
 
     // ─────────────────────────────────────────────────────────

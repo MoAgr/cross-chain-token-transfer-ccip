@@ -28,6 +28,7 @@ Transfers flow from **Ethereum Sepolia** (source) → **Avalanche Fuji** (destin
 Deployed on the **source chain** (Sepolia). Accepts ERC-20 tokens from a user, constructs a CCIP message, estimates fees via `router.getFee()`, and dispatches the message via `router.ccipSend()`. Fees are paid in native currency (ETH).
 
 **Key features:**
+
 - Destination chain allowlist (owner-managed)
 - Native fee payment with insufficient-fee revert
 - Token and native currency recovery functions
@@ -38,6 +39,7 @@ Deployed on the **source chain** (Sepolia). Accepts ERC-20 tokens from a user, c
 Deployed on the **destination chain** (Fuji). Implements `IAny2EVMMessageReceiver.ccipReceive()` with a defensive try/catch pattern.
 
 **Key features:**
+
 - `onlyRouter` modifier — only the CCIP Router can call `ccipReceive`
 - Source chain allowlist (owner-managed)
 - Sender address allowlist, per source chain (owner-managed)
@@ -201,14 +203,14 @@ Messages typically take **5–20 minutes** to finalize on the destination chain.
 
 ## Key Addresses (Testnet)
 
-| Resource | Network | Address |
-|---|---|---|
-| CCIP Router | Sepolia | `0x0BF3dE8c5D3e8A2B34D2BEeB17ABfCeBaf363A59` |
-| CCIP Router | Fuji | `0xF694E193200268f9a4868e4Aa017A0118C9a8177` |
-| CCIP-BnM Token | Sepolia | `0xFd57b4ddBf88a4e07fF4e34C487b99af2Fe82a05` |
-| CCIP-BnM Token | Fuji | `0xD21341536c5cF5EB1bcb58f6723cE26e8D8E90e4` |
-| Sepolia Chain Selector | — | `16015286601757825753` |
-| Fuji Chain Selector | — | `14767482510784806043` |
+| Resource               | Network | Address                                      |
+| ---------------------- | ------- | -------------------------------------------- |
+| CCIP Router            | Sepolia | `0x0BF3dE8c5D3e8A2B34D2BEeB17ABfCeBaf363A59` |
+| CCIP Router            | Fuji    | `0xF694E193200268f9a4868e4Aa017A0118C9a8177` |
+| CCIP-BnM Token         | Sepolia | `0xFd57b4ddBf88a4e07fF4e34C487b99af2Fe82a05` |
+| CCIP-BnM Token         | Fuji    | `0xD21341536c5cF5EB1bcb58f6723cE26e8D8E90e4` |
+| Sepolia Chain Selector | —       | `16015286601757825753`                       |
+| Fuji Chain Selector    | —       | `14767482510784806043`                       |
 
 ---
 
@@ -234,7 +236,15 @@ forge test -vvv
 
 # Gas report
 forge test --gas-report
+
+# Create gas baseline snapshot
+forge snapshot
+
+# Compare gas against the stored snapshot after changes
+forge snapshot --diff
 ```
+
+Gas audit baseline and workflow details are documented in `GAS_AUDIT.md`.
 
 ---
 

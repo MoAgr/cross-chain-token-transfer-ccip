@@ -48,6 +48,7 @@ contract RetryHarnessReceiver is CCIPTokenReceiver {
 contract CCIPTokenReceiverTest is Test {
     uint64 internal constant SOURCE_CHAIN_SELECTOR = 16015286601757825753;
     uint256 internal constant BASE_FEE = 0.01 ether;
+    uint256 internal constant CCIP_RECEIVER_GAS_CAP = 3_000_000;
 
     address internal owner = makeAddr("owner");
     address internal alice = makeAddr("alice");
@@ -133,6 +134,40 @@ contract CCIPTokenReceiverTest is Test {
             gasLimit
         );
         vm.stopPrank();
+    }
+
+    function _extractMsgExecuted(
+        Vm.Log[] memory logs
+    ) internal pure returns (bool success, uint256 gasUsed, bool found) {
+        bytes32 msgExecutedTopic = keccak256("MsgExecuted(bool,bytes,uint256)");
+
+        for (uint256 i; i < logs.length; ) {
+            if (
+                logs[i].topics.length > 0 &&
+                logs[i].topics[0] == msgExecutedTopic
+            ) {
+                (bool execSuccess, , uint256 execGasUsed) = abi.decode(
+                    logs[i].data,
+                    (bool, bytes, uint256)
+                );
+                return (execSuccess, execGasUsed, true);
+            }
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
+    function _sendAndCaptureRouteGas(
+        uint256 amount
+    ) internal returns (bool eventSuccess, uint256 eventGasUsed) {
+        vm.recordLogs();
+        _sendFromSource(amount);
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bool found;
+        (eventSuccess, eventGasUsed, found) = _extractMsgExecuted(logs);
+        assertTrue(found);
     }
 
     // ─────────────────────────────────────────────────────────
@@ -753,6 +788,47 @@ contract CCIPTokenReceiverTest is Test {
 
         uint256 recommendedGasLimit = (gasLarge * 120) / 100;
         assertGe(recommendedGasLimit, gasLarge);
+    }
+
+    function test_gasAudit_routedPaths_under3M_with20PctBuffer() public {
+        (bool baselineSuccess, uint256 baselineGas) = _sendAndCaptureRouteGas(
+            1e18
+        );
+        (bool averageSuccess, uint256 averageGas) = _sendAndCaptureRouteGas(
+            50e18
+        );
+
+        vm.prank(owner);
+        receiver.setSenderAllowlist(
+            SOURCE_CHAIN_SELECTOR,
+            address(sourceSender),
+            false
+        );
+
+        (
+            bool failurePathSuccess,
+            uint256 failurePathGas
+        ) = _sendAndCaptureRouteGas(2e18);
+
+        assertTrue(baselineSuccess);
+        assertTrue(averageSuccess);
+        assertTrue(failurePathSuccess);
+
+        assertLt(baselineGas, CCIP_RECEIVER_GAS_CAP);
+        assertLt(averageGas, CCIP_RECEIVER_GAS_CAP);
+        assertLt(failurePathGas, CCIP_RECEIVER_GAS_CAP);
+
+        uint256 peakGas = baselineGas;
+        if (averageGas > peakGas) {
+            peakGas = averageGas;
+        }
+        if (failurePathGas > peakGas) {
+            peakGas = failurePathGas;
+        }
+
+        uint256 recommendedGasLimit = (peakGas * 120) / 100;
+        assertGe(recommendedGasLimit, peakGas);
+        assertLe(recommendedGasLimit, CCIP_RECEIVER_GAS_CAP);
     }
 
     // ─────────────────────────────────────────────────────────
