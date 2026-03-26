@@ -209,7 +209,7 @@ contract CCIPTokenSender is Ownable, ReentrancyGuard {
                 )
                 : Client._argsToBytes(
                     Client.EVMExtraArgsV2({
-                        gasLimit: 200_000,
+                        gasLimit: 500_000,
                         allowOutOfOrderExecution: true
                     })
                 )

@@ -37,9 +37,14 @@ library CCIPConfig {
     address constant FUJI_ROUTER = 0xF694E193200268f9a4868e4Aa017A0118C9a8177;
     uint64 constant FUJI_CHAIN_SELECTOR = 14767482510784806043;
 
+    // ── Base Sepolia ────────────────────────────────
+    address constant BASE_SEPOLIA_ROUTER = 0xD3b06cEbF099CE7DA4AcCf578aaebFDBd6e88a93;
+    uint64 constant BASE_SEPOLIA_CHAIN_SELECTOR = 10344971235874465080;
+
     // ── CCIP-BnM Test Token ─────────────────────────
     address constant SEPOLIA_CCIP_BNM = 0xFd57b4ddBf88a4e07fF4e34C487b99af2Fe82a05;
     address constant FUJI_CCIP_BNM = 0xD21341536c5cF5EB1bcb58f6723cE26e8D8E90e4;
+    address constant BASE_SEPOLIA_CCIP_BNM = 0x88a2d733f4a1d85702F9371020081555e7178155;
 }
 
 // ──────────────────────────────────────────────────
@@ -63,9 +68,9 @@ contract DeploySender is Script {
         CCIPTokenSender sender = new CCIPTokenSender(CCIPConfig.SEPOLIA_ROUTER, deployer);
         console.log("CCIPTokenSender deployed at:", address(sender));
 
-        // Allowlist Avalanche Fuji as a destination chain
-        sender.setDestinationChainAllowlist(CCIPConfig.FUJI_CHAIN_SELECTOR, true);
-        console.log("Fuji chain selector allowlisted:", CCIPConfig.FUJI_CHAIN_SELECTOR);
+        // Allowlist Base Sepolia as a destination chain
+        sender.setDestinationChainAllowlist(CCIPConfig.BASE_SEPOLIA_CHAIN_SELECTOR, true);
+        console.log("Base Sepolia chain selector allowlisted:", CCIPConfig.BASE_SEPOLIA_CHAIN_SELECTOR);
 
         vm.stopBroadcast();
     }
@@ -84,14 +89,14 @@ contract DeployReceiver is Script {
         uint256 deployerKey = vm.envUint("PRIVATE_KEY");
         address deployer = vm.envAddress("DEPLOYER_ADDRESS");
 
-        console.log("=== Deploying CCIPTokenReceiver on Fuji ===");
+        console.log("=== Deploying CCIPTokenReceiver on Base Sepolia ===");
         console.log("Deployer:", deployer);
-        console.log("Router:  ", CCIPConfig.FUJI_ROUTER);
+        console.log("Router:  ", CCIPConfig.BASE_SEPOLIA_ROUTER);
 
         vm.startBroadcast(deployerKey);
 
         // Deploy
-        CCIPTokenReceiver receiver = new CCIPTokenReceiver(CCIPConfig.FUJI_ROUTER, deployer);
+        CCIPTokenReceiver receiver = new CCIPTokenReceiver(CCIPConfig.BASE_SEPOLIA_ROUTER, deployer);
         console.log("CCIPTokenReceiver deployed at:", address(receiver));
 
         // Allowlist Ethereum Sepolia as a source chain
@@ -172,7 +177,7 @@ contract SendTokens is Script {
         // Send tokens cross-chain
         CCIPTokenSender sender = CCIPTokenSender(payable(senderAddress));
         bytes32 messageId = sender.sendTokens{value: 0.1 ether}(
-            CCIPConfig.FUJI_CHAIN_SELECTOR,
+            CCIPConfig.BASE_SEPOLIA_CHAIN_SELECTOR,
             receiverAddress,
             CCIPConfig.SEPOLIA_CCIP_BNM,
             amount,

@@ -2,14 +2,14 @@
 
 A production-quality Foundry project demonstrating cross-chain ERC-20 token transfers using **Chainlink CCIP (Cross-Chain Interoperability Protocol)**.
 
-Transfers flow from **Ethereum Sepolia** (source) → **Avalanche Fuji** (destination).
+Transfers flow from **Ethereum Sepolia** (source) → **Base Sepolia** (destination).
 
 ---
 
 ## Architecture
 
 ```
- Sepolia                                          Fuji
+ Sepolia                                          Base
 ┌──────────────────────┐                    ┌───────────────────────┐
 │   CCIPTokenSender    │   CCIP Message     │   CCIPTokenReceiver   │
 │                      │ ─────────────────► │                       │
@@ -56,7 +56,8 @@ Deployed on the **destination chain** (Fuji). Implements `IAny2EVMMessageReceive
 - [Foundry](https://book.getfoundry.sh/getting-started/installation) installed
 - An EOA with:
   - Sepolia ETH (for deployment + CCIP fees) — [Sepolia Faucet](https://sepoliafaucet.com)
-  - Fuji AVAX (for deployment) — [Fuji Faucet](https://faucets.chain.link/fuji)
+  - **Fuji AVAX** (for destination Fuji) — [Fuji Faucet](https://faucets.chain.link/fuji) (Requires mainnet balance)
+  - **Base Sepolia ETH** (Recommended destination) — [Google Cloud Faucet](https://cloud.google.com/application/web3/faucet/ethereum/sepolia) or [thirdweb Faucet](https://thirdweb.com/faucet/base-sepolia)
   - CCIP-BnM test tokens on Sepolia — [CCIP Faucet](https://faucets.chain.link)
 
 ---
@@ -117,7 +118,7 @@ source .env
 
 ## Deployment
 
-### Step 1 — Deploy Receiver on Avalanche Fuji
+### Step 1 — Deploy Receiver on Base Sepolia
 
 ```bash
 forge script script/Deploy.s.sol:DeployReceiver \
@@ -155,6 +156,8 @@ forge script script/Deploy.s.sol:AllowlistSender \
 ## Sending a Test Transfer
 
 ### Option A — Using the helper script
+
+Defaults to sending from Sepolia to Base Sepolia.
 
 ```bash
 SENDER_ADDRESS=0x<sender-address> \
@@ -203,14 +206,17 @@ Messages typically take **5–20 minutes** to finalize on the destination chain.
 
 ## Key Addresses (Testnet)
 
-| Resource               | Network | Address                                      |
-| ---------------------- | ------- | -------------------------------------------- |
-| CCIP Router            | Sepolia | `0x0BF3dE8c5D3e8A2B34D2BEeB17ABfCeBaf363A59` |
-| CCIP Router            | Fuji    | `0xF694E193200268f9a4868e4Aa017A0118C9a8177` |
-| CCIP-BnM Token         | Sepolia | `0xFd57b4ddBf88a4e07fF4e34C487b99af2Fe82a05` |
-| CCIP-BnM Token         | Fuji    | `0xD21341536c5cF5EB1bcb58f6723cE26e8D8E90e4` |
-| Sepolia Chain Selector | —       | `16015286601757825753`                       |
-| Fuji Chain Selector    | —       | `14767482510784806043`                       |
+| Resource               | Network      | Address                                      |
+| ---------------------- | ------------ | -------------------------------------------- |
+| CCIP Router            | Sepolia      | `0x0BF3dE8c5D3e8A2B34D2BEeB17ABfCeBaf363A59` |
+| CCIP Router            | Fuji         | `0xF694E193200268f9a4868e4Aa017A0118C9a8177` |
+| CCIP Router            | Base Sepolia | `0xD3b06cEbF099CE7DA4AcCf578aaebFDBd6e88a93` |
+| CCIP-BnM Token         | Sepolia      | `0xFd57b4ddBf88a4e07fF4e34C487b99af2Fe82a05` |
+| CCIP-BnM Token         | Fuji         | `0xD21341536c5cF5EB1bcb58f6723cE26e8D8E90e4` |
+| CCIP-BnM Token         | Base Sepolia | `0x88A2d733F4a1D85702F9371020081555e7178155` |
+| Sepolia Chain Selector | —            | `16015286601757825753`                       |
+| Fuji Chain Selector    | —            | `14767482510784806043`                       |
+| Base Sepolia Selector  | —            | `10344971235874465080`                       |
 
 ---
 
